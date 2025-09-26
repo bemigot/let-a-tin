@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "acme-tiny"
 version = "5.0.2"
-requires-python = ">=3.7,>=2.7"
+requires-python = ">=3.9"
 dependencies = []
 authors = [
     {name = "Daniel Roesler", email = "diafygi@gmail.com"},
@@ -22,15 +22,7 @@ classifiers = [
     'Intended Audience :: System Administrators',
     'Operating System :: OS Independent',
     'Programming Language :: Python',
-    'Programming Language :: Python :: 2',
-    'Programming Language :: Python :: 2.7',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.3',
-    'Programming Language :: Python :: 3.4',
-    'Programming Language :: Python :: 3.5',
-    'Programming Language :: Python :: 3.6',
-    'Programming Language :: Python :: 3.7',
-    'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
