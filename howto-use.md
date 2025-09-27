@@ -187,7 +187,8 @@ Then you'll need to configure a cron job to execute this script regularly.
 If you use systemd, you can create a "one shot" systemd service and a systemd timer to run it.
 
 For the cron/timer configuration, you should consider:
-* Certificates issued by Let's Encrypt servers are currently valid for 3 months, so set the timer a bit shorter.
-* To avoid DDOS on CA servers, set random minutes (and/or day in the month) to run the script
-* systemd allow to run this script with a non-privileged user service and chain it with a privileged service which
-will restart TLS based services.
+* Let's Encrypt certificates are valid for 90 days, so set a shorter renewal interval.
+* avoid unnecessary load spikes on the Certificate Authority, use a randomized schedule
+  (e.g. `47 22 26 */2 *` instead of `0 0 1 */2 *`) when setting up renewal jobs.
+* configure `systemd` to run this script as a non-privileged user and chain it with a privileged service which
+will restart services implementing TLS.
