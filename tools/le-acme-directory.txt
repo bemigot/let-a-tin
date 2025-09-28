@@ -1,0 +1,7 @@
+newAccount	"https://acme-v02.api.letsencrypt.org/acme/new-acct"
+newNonce	"https://acme-v02.api.letsencrypt.org/acme/new-nonce"
+newOrder	"https://acme-v02.api.letsencrypt.org/acme/new-order"
+renewalInfo	"https://acme-v02.api.letsencrypt.org/acme/renewal-info"
+revokeCert	"https://acme-v02.api.letsencrypt.org/acme/revoke-cert"
+
+meta { termsOfService: "https://...", website: "https://letsencrypt.org", … }
