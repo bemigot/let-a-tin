@@ -4,49 +4,47 @@
 import argparse, base64, binascii, configparser, copy, hashlib, json, logging
 import re, sys, subprocess, time
 import requests
-import dns.exception, dns.query, dns.name, dns.resolver, dns.rrset, dns.tsigkeyring, dns.update
+import dns.exception, dns.query, dns.name, dns.resolver, dns.rrset
 
 LOGGER = logging.getLogger('acme_dns_tiny')
 LOGGER.addHandler(logging.StreamHandler())
 
 
-def _base64(text):
+def a_base64(text):
     """Encodes string as base64 as specified in the ACME RFC."""
     return base64.urlsafe_b64encode(text).decode("utf8").rstrip("=")
 
 
-def _openssl(command, options, communicate=None):
+def run_openssl(command, options, communicate=None):
     """Run openssl command line and raise IOError on non-zero return."""
     with subprocess.Popen(["openssl", command] + options,
                           stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE) as openssl:
         out, err = openssl.communicate(communicate)
         if openssl.returncode != 0:
-            raise IOError("OpenSSL Error: {0}".format(err))
+            raise IOError(f"OpenSSL Error: {err}")
         return out
 
 
-# pylint: disable=too-many-locals,too-many-branches,too-many-statements
 def get_crt(config, log=LOGGER):
     """Get ACME certificate by resolving DNS challenge."""
 
     def _get_authoritative_server_ips(zone, resolver):
         """Get all authoritative server ips for a given zone"""
         main_name = resolver.resolve(zone, rdtype="SOA", lifetime=dns_timeout)[0].mname
-        nameservers = [ns.target for ns in resolver.resolve(
-            zone, rdtype="NS", lifetime=dns_timeout)]
+        dns_servers = [ns.target for ns in resolver.resolve(zone, rdtype="NS", lifetime=dns_timeout)]
         nameservers_ipv4 = []
         nameservers_ipv6 = []
         # Add the main (aka "master") name server ip to the head of the list
         # (see "Requestor Behavior" section of RFC 2136)
-        if main_name in nameservers:
+        if main_name in dns_servers:
             nameservers_ipv6 += [ip.address for ip in resolver.resolve(main_name, rdtype="AAAA",
                                                                        raise_on_no_answer=False,
                                                                        lifetime=dns_timeout)]
             nameservers_ipv4 += [ip.address for ip in resolver.resolve(main_name, rdtype="A",
                                                                        raise_on_no_answer=False,
                                                                        lifetime=dns_timeout)]
-        for nameserver in list(filter(lambda ns: ns != main_name, nameservers)):
+        for nameserver in list(filter(lambda ns: ns != main_name, dns_servers)):
             nameservers_ipv6 += [ip.address for ip in resolver.resolve(nameserver, rdtype="AAAA",
                                                                        raise_on_no_answer=False,
                                                                        lifetime=dns_timeout)]
@@ -60,31 +58,7 @@ def get_crt(config, log=LOGGER):
         return nameservers_ips
 
     def _update_dns(rrset, action, resolver):
-        """Updates DNS resource by adding or deleting resource."""
-        algorithm = dns.name.from_text("{0}".format(config["TSIGKeyring"]["Algorithm"].lower()))
-        dns_zone = dns.resolver.zone_for_name(rrset.name, resolver=resolver)
-        # Prepare dns update message
-        dns_update = dns.update.Update(dns_zone,
-                                       keyring=private_keyring, keyalgorithm=algorithm)
-        if action == "add":
-            dns_update.add(rrset.name, rrset)
-        elif action == "delete":
-            dns_update.delete(rrset.name, rrset)
-        # Send DNS update request to main zone nameservers
-        response = None
-        for nameserver in _get_authoritative_server_ips(dns_zone, resolver):
-            try:
-                response = dns.query.tcp(dns_update, nameserver, timeout=dns_timeout)
-            # pylint: disable=broad-except
-            except Exception as exception:
-                log.debug("Unable to %s DNS resource on dns main server with IP %s, try again "
-                          "with next available dns main server IP. Error detail: %s", action,
-                          nameserver, exception)
-                response = None
-            if response is not None:
-                break
-        if response is None:
-            raise RuntimeError("Unable to {0} DNS resource to {1}".format(action, rrset.name))
+        raise RuntimeError("Unimplemented")
 
     def _send_signed_request(url, payload, extra_headers=None):
         """Sends signed requests to ACME server."""
@@ -92,7 +66,7 @@ def get_crt(config, log=LOGGER):
         if payload == "":  # on POST-as-GET, final payload has to be just empty string
             payload64 = ""
         else:
-            payload64 = _base64(json.dumps(payload).encode("utf8"))
+            payload64 = a_base64(json.dumps(payload).encode("utf8"))
         protected = copy.deepcopy(private_acme_signature)
         protected["nonce"] = nonce or requests.get(acme_config["newNonce"], headers=adt_headers,
                                                    timeout=acme_timeout).headers['Replay-Nonce']
@@ -103,11 +77,11 @@ def get_crt(config, log=LOGGER):
                 del protected["kid"]
         else:
             del protected["jwk"]
-        protected64 = _base64(json.dumps(protected).encode("utf8"))
-        signature = _openssl("dgst", ["-sha256", "-sign", config["acmednstiny"]["AccountKeyFile"]],
+        protected64 = a_base64(json.dumps(protected).encode("utf8"))
+        signature = run_openssl("dgst", ["-sha256", "-sign", config["acmednstiny"]["AccountKeyFile"]],
                              "{0}.{1}".format(protected64, payload64).encode("utf8"))
         jose = {
-            "protected": protected64, "payload": payload64, "signature": _base64(signature)
+            "protected": protected64, "payload": payload64, "signature": a_base64(signature)
         }
         jose_headers = {
             'Content-Type': 'application/jose+json'} | adt_headers | (extra_headers or {})
@@ -132,7 +106,7 @@ def get_crt(config, log=LOGGER):
     nonce = None
 
     log.info("Find domains to validate from the Certificate Signing Request (CSR) file.")
-    csr = _openssl("req", ["-in", config["acmednstiny"]["CSRFile"],
+    csr = run_openssl("req", ["-in", config["acmednstiny"]["CSRFile"],
                            "-noout", "-text"]).decode("utf8")
     domains = set()
     common_name = re.search(r"Subject:.*?\s+?CN\s*?=\s*?([^\s,;/]+)", csr)
@@ -164,7 +138,7 @@ def get_crt(config, log=LOGGER):
     resolver.use_search_by_default = False
 
     log.info("Get private signature from account key.")
-    accountkey = _openssl("rsa", ["-in", config["acmednstiny"]["AccountKeyFile"],
+    accountkey = run_openssl("rsa", ["-in", config["acmednstiny"]["AccountKeyFile"],
                                   "-noout", "-text"])
     signature_search = re.search(r"modulus:\s+?00:([a-f0-9\:\s]+?)\r?\npublicExponent: ([0-9]+)",
                                  accountkey.decode("utf8"), re.MULTILINE)
@@ -177,13 +151,13 @@ def get_crt(config, log=LOGGER):
     private_acme_signature = {
         "alg": "RS256",
         "jwk": {
-            "e": _base64(binascii.unhexlify(pub_exp.encode("utf-8"))),
+            "e": a_base64(binascii.unhexlify(pub_exp.encode("utf-8"))),
             "kty": "RSA",
-            "n": _base64(binascii.unhexlify(re.sub(r"(\s|:)", "", pub_hex).encode("utf-8"))),
+            "n": a_base64(binascii.unhexlify(re.sub(r"(\s|:)", "", pub_hex).encode("utf-8"))),
         },
     }
     private_jwk = json.dumps(private_acme_signature["jwk"], sort_keys=True, separators=(",", ":"))
-    jwk_thumbprint = _base64(hashlib.sha256(private_jwk.encode("utf8")).digest())
+    jwk_thumbprint = a_base64(hashlib.sha256(private_jwk.encode("utf8")).digest())
 
     log.info("Fetch ACME server configuration from its directory URL.")
     acme_config = requests.get(config["acmednstiny"]["ACMEDirectory"], headers=adt_headers,
@@ -267,12 +241,11 @@ def get_crt(config, log=LOGGER):
 
         challenges = [c for c in authorization["challenges"] if c["type"] == "dns-01"]
         if not challenges:
-            raise ValueError("Unable to find a DNS challenge to resolve for domain {0}"
-                             .format(domain))
+            raise ValueError(f"Unable to find a DNS challenge to resolve for domain {domain}")
         log.info("Install DNS TXT resource for domain: %s", domain)
         challenge = challenges[0]
         keyauthorization = challenge["token"] + "." + jwk_thumbprint
-        keydigest64 = _base64(hashlib.sha256(keyauthorization.encode("utf8")).digest())
+        keydigest64 = a_base64(hashlib.sha256(keyauthorization.encode("utf8")).digest())
         dnsrr_domain = "_acme-challenge.{0}.".format(domain)
         try:  # a CNAME resource can be used for advanced TSIG configuration
             # Note: the CNAME target has to be of "non-CNAME" type (recursion isn't managed)
@@ -342,7 +315,7 @@ def get_crt(config, log=LOGGER):
             _update_dns(dnsrr_set, "delete", resolver)
 
     log.info("Request to finalize the order (all challenges have been completed)")
-    csr_der = _base64(_openssl("req", ["-in", config["acmednstiny"]["CSRFile"],
+    csr_der = a_base64(run_openssl("req", ["-in", config["acmednstiny"]["CSRFile"],
                                        "-outform", "DER"]))
     http_response, result = _send_signed_request(order["finalize"], {"csr": csr_der})
     if http_response.status_code != 200:
